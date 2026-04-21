@@ -60,14 +60,19 @@
 **回答概要**: ①修复 agent-router.md 路由级数（P0–P6 七级，补入 P4 LLM 意图分类和路由规则数据模型）；②QA.md 新增 Hermes Agent 生命周期条目；③新建 deerflow-agent.md（13 层中间件、子 Agent 系统、Skill 加载链）；④新建 4 张时序图（agent-loop/skill-loading/multi-agent/memory-lifecycle）；⑤更新 INDEX.md
 **相关页面**: [[architecture/agent-router.md]]、[[architecture/deerflow-agent.md]]、[[flows/]]
 
-### 修改 QA 文档定义为对话记录格式
-**请求**: QA 文档定义修改下，要求记录每次提的问题和回答概要和时间
-**回答概要**: 更新 CLAUDE.md §6 工作流（每次提问都追加，不去重，格式改为日期+摘要+回答概要）；更新 QA.md 模板；按新格式重写 QA.md 并补录本次会话全部问题
-**相关页面**: [[CLAUDE.md]]
-
 ---
 
 ## 2026-04-22
+
+### Hermes Session FTS5 设计思路
+**请求**: Hermes Agent 记忆系统中的 Session FTS5，优点是什么，为什么这么做；以及追问：想了解的是为什么这么设计
+**回答概要**: Session FTS5 解决 MEMORY.md 2200 字符硬限与"无限历史档案"之间的矛盾——MEMORY.md 是"总是可见的提炼事实"，FTS5 是"按需回忆的历史全文档案"，两层职责分离；选 FTS5 而非向量搜索是因为 SQLite 内置零依赖，语义质量不足由后置 LLM 摘要补偿；MEMORY.md 的字符硬限是有意设计，强迫 Agent 做价值判断
+**相关页面**: [[memory/hermes-memory.md]]
+
+### 新增技术问题回答规范到 CLAUDE.md
+**请求**: 当提出技术问题时，要分析想了解的是设计思路和实现目的和场景，基于此扩展 CLAUDE.md
+**回答概要**: 在 CLAUDE.md 新增"技术问题回答规范"章节，定义 4 种问法特征与对应的真实意图和回答重心，默认优先解释"为什么这么设计"而非功能描述
+**相关页面**: [[CLAUDE.md]]
 
 ### 记忆衰减、睡眠巩固、置信度文档补全
 **请求**: 记忆的衰减、睡眠增强、可信度没看到
