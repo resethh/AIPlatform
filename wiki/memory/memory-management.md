@@ -24,6 +24,33 @@
 冷存储:   Vector DB      → 语义检索（长期记忆、知识库）
 ```
 
+### 记忆分类体系
+
+中台记忆分两个维度：**层次**（按生命周期划分存储级别）和 **Fact 类型**（按语义用途划分事实类别）。
+
+**层次分类（memory_tier）**
+
+| 层次 | 载体 | 生命周期 | 半衰期 |
+|---|---|---|---|
+| `short_term` | Redis / Session JSONL | Session 存续期，超 7 天未访问自动归档 | 7 天 |
+| `long_term` | PostgreSQL / facts.json | 跨 Session 持久化，超 90 天未访问减半 | 90 天 |
+| `permanent` | 系统配置、全局规则 | 永不衰减 | 不衰减 |
+
+**Fact 类型分类（category）**
+
+| category | 含义 | 示例 |
+|---|---|---|
+| `preference` | 工具/风格/方法偏好 | "用户喜欢简洁回复" |
+| `knowledge` | 专业知识/掌握技术 | "用户熟悉 TypeScript" |
+| `context` | 背景事实（职位/项目） | "用户负责 CRM 系统" |
+| `behavior` | 工作模式/沟通习惯 | "用户总是先问确认再执行" |
+| `goal` | 目标/学习计划 | "用户计划学习 Rust" |
+| `correction` | 明确纠正（含 `correction_note` 字段） | content=正确做法，note=之前的错误 |
+
+> `correction` 类是中台补加的，DeerFlow 只有前 5 类，参考: [[memory/deerflow-memory.md]]
+
+---
+
 ### 记忆更新机制
 
 1. **防抖异步队列（参考 DeerFlow）**: 同一 Session 多轮更新覆盖合并，配置 `debounce_seconds` 延迟后批量触发 LLM 提取，避免每条消息都调一次 LLM。
