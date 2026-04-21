@@ -67,6 +67,15 @@
 
 ---
 
+## 2026-04-22
+
+### 记忆衰减、睡眠巩固、置信度文档补全
+**请求**: 记忆的衰减、睡眠增强、可信度没看到
+**回答概要**: 扩写 memory-management.md（新增置信度体系、衰减机制、睡眠巩固三大章节）；扩写 deerflow-memory.md（补入 5 类 category、confidence 写入/注入/截断三阶段、LLM 输出 JSON diff 格式、无时间衰减说明）
+**相关页面**: [[memory/memory-management.md]]、[[memory/deerflow-memory.md]]
+
+---
+
 ## 历史技术参考（来源：raw/hermes-QA.md）
 
 > 以下条目来自 Hermes 源码探索记录，非用户提问，仅作技术参考。
