@@ -64,6 +64,11 @@
 
 ## 2026-04-22
 
+### 收录 HiClaw 1.0.6 并汇总 Skill 管理挑战
+**请求**: 处理新资料 HiClaw 1.0.6，并总结 Skill 管理哪些挑战点形成新文档
+**回答概要**: 新建 `architecture/mcp-management.md`（HiClaw Manager-Worker + AI Gateway 凭证代理模式）；新建 `skills/skill-challenges.md`（8 项挑战域：上下文工程/多租户/Skill 演进/版本管理/运行时安全/配额降级/分布式一致性/MCP 协同），每项含本质-难点-方案-残余风险；更新 INDEX.md 和 log.md
+**相关页面**: [[architecture/mcp-management.md]]、[[skills/skill-challenges.md]]、[[INDEX.md]]
+
 ### 收录新资料工作流补充 M 状态处理
 **请求**: 源文件更改了，收录新资料时需要处理 M（修改）状态，不需要提到暂存区
 **回答概要**: 更新 CLAUDE.md 收录工作流，新增 `M` 状态处理逻辑（只更新 wiki 受影响部分，不全量重写），说明 git status 不需要先暂存即可检测

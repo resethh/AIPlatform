@@ -27,3 +27,17 @@
 | hermes-QA.md | `wiki/QA.md` ⭐新文件 | 迁移 14 条 Q&A，合并为 3 个主题条目 |
 
 **新建模块**: `wiki/architecture/`、`wiki/security/`、`wiki/memory/`、`wiki/context/`、`wiki/skills/`
+
+---
+
+## 2026-04-22 — HiClaw MCP 管理 + Skill 挑战汇总
+
+| 收录文件 | 归属模块 | 新建/更新页面 |
+|---|---|---|
+| HiClaw 1.0.6：企业级 MCP Server 管理 — 凭证零暴露，工具全接入.md | `wiki/architecture/` | [[mcp-management.md]] 新建（中台设计页） |
+| —（基于现有 wiki 汇总） | `wiki/skills/` | [[skill-challenges.md]] 新建 — 8 项挑战域汇总 |
+
+**重点**：
+- HiClaw 提供 Manager-Worker 分离 + AI Gateway 凭证代理模式，凭证零暴露
+- MCP 与 Skill 分层协同：MCP 管权限，Skill 管场景
+- Skill 挑战汇总涵盖上下文工程 / 多租户 / 安全 / 自进化四个主要问题域，每项含残余风险
