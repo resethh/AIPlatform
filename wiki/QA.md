@@ -79,6 +79,11 @@
 **回答概要**: Session FTS5 解决 MEMORY.md 2200 字符硬限与"无限历史档案"之间的矛盾——MEMORY.md 是"总是可见的提炼事实"，FTS5 是"按需回忆的历史全文档案"，两层职责分离；选 FTS5 而非向量搜索是因为 SQLite 内置零依赖，语义质量不足由后置 LLM 摘要补偿；MEMORY.md 的字符硬限是有意设计，强迫 Agent 做价值判断
 **相关页面**: [[memory/hermes-memory.md]]
 
+### 合并 Skill 文档为中台方案页
+**请求**: 把 hermes-skills.md 改名为 skill-manage.md，融合 skill-iteration.md，存一个 AI 中台 Skill 管理方案，ToB 使用 PostgreSQL 和 OSS 对象存储
+**回答概要**: 新建 skill-manage.md（Hermes 14 项功能 + ToB 树形继承 + PostgreSQL schema + OSS 路径规范 + 版本灰度 + 6 级信任 Hub），删除原两个文件，更新 INDEX.md
+**相关页面**: [[skills/skill-manage.md]]、[[INDEX.md]]
+
 ### 新增技术问题回答规范到 CLAUDE.md
 **请求**: 当提出技术问题时，要分析想了解的是设计思路和实现目的和场景，基于此扩展 CLAUDE.md
 **回答概要**: 在 CLAUDE.md 新增"技术问题回答规范"章节，定义 4 种问法特征与对应的真实意图和回答重心，默认优先解释"为什么这么设计"而非功能描述

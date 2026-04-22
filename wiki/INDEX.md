@@ -16,8 +16,7 @@
 | 记忆机制 | `wiki/memory/` | [[hermes-memory.md]] | Hermes 记忆系统：冻结快照 / 插件化 Provider（Honcho/Mem0）/ 字符上限控制 |
 | 上下文 | `wiki/context/` | [[context-management.md]] | AI 中台上下文管理：System Prompt 组装 / 滑动窗口压缩 / Token 预算控制 |
 | 上下文 | `wiki/context/` | [[deerflow-context.md]] | DeerFlow 上下文三层模型：异步更新 / 渐进加载 / 原子状态切换 |
-| Skills | `wiki/skills/` | [[skill-iteration.md]] | Skill 继承体系与版本迭代：组织树继承 / 灰度发布 / Agent 草稿审核 / 6 级信任 Hub |
-| Skills | `wiki/skills/` | [[hermes-skills.md]] | Hermes Skill 管理：14 功能清单 / 三层缓存 / 渐进加载 / 条件激活 / 安全扫描 |
+| Skills | `wiki/skills/` | [[skill-manage.md]] | AI 中台 Skill 管理：Hermes 核心机制 + ToB 改造（PostgreSQL+OSS 存储 / 组织树继承 / 审核发布 / 6 级信任 Hub） |
 | 时序流程 | `wiki/flows/` | [[message-pipeline.md]] | 消息全链路时序：用户发消息 → Gateway → 路由 → Worker → Agent Loop → 回复 |
 | 时序流程 | `wiki/flows/` | [[agent-loop.md]] | Agent 执行循环：Hermes 自定义 Loop vs DeerFlow LangGraph，工具调度与状态管理 |
 | 时序流程 | `wiki/flows/` | [[skill-loading.md]] | Skill 渐进加载：Hermes load_skill meta-tool vs DeerFlow read_file，token 节省对比 |
@@ -72,8 +71,7 @@
 - Hermes 实现细节 → [[memory/hermes-memory.md]]
 
 **了解 Skill 体系**
-- 中台设计（ToB）→ [[skills/skill-iteration.md]]
-- Hermes 实现参考 → [[skills/hermes-skills.md]]
+- 中台完整方案（Hermes 机制 + ToB 改造）→ [[skills/skill-manage.md]]
 
 **了解安全**
 - 威胁全景 + 防御体系 → [[security/agent-security.md]]
