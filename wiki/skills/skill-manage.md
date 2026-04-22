@@ -115,6 +115,20 @@ enterprise:
     per_tenant_daily: 10000
 ```
 
+**enterprise 块的作用**：把 ToB 才需要的元数据集中在 YAML 里统一管理，创建/发布时由系统解析写入对应表，避免散落到多个管理界面。各字段对应下游消费方：
+
+| 字段 | 作用 | 下游消费 |
+|---|---|---|
+| `trust_level` | 标识 Skill 来源的信任等级，决定是否自动批准、是否跑沙箱 | #11 Skills Hub 的 6 级信任体系 |
+| `owner_node_id` | 标识 Skill 归属的组织节点（团队/部门） | #13 两级继承查询的 owner_id 字段 |
+| `security.risk_level` | 运行时风险等级（影响 Worker 沙箱强度） | #12 安全扫描 + 运行时沙箱配置 |
+| `security.data_classification` | 数据密级（internal/confidential/pii），控制日志脱敏等级 | 审计日志 + DLP 扫描 |
+| `security.pii_involved` | 是否涉及个人信息，触发 PII 合规检查 | 合规审计 + 数据治理 |
+| `activation.*` | 渠道 / 时间 / 平台等激活条件 | #5 写入 `skill_activation_rules` 表 |
+| `quotas.*` | 每用户 / 每租户每日调用次数上限 | #8 skill_view 的配额检查阻断 |
+
+**原则**：enterprise 块是**声明式**的——YAML 里写完，CI/发布流水线自动同步到表。不走 YAML 的改动（如运维调整配额）可直接改表，表为准，YAML 下次发布时同步回来。
+
 ---
 
 ## 2. 目录结构
@@ -133,12 +147,33 @@ enterprise:
 
 ### 中台改造
 
-元数据 PostgreSQL，内容 OSS 对象存储。Skill 分两大类：**公共 Skill**（组织内共享）和**个人 Skill**（用户私有）。
+元数据 PostgreSQL，内容 OSS 对象存储 + **PVC subPath 挂载**到 Worker Pod。Skill 分两大类：**公共 Skill**（组织内共享）和**个人 Skill**（用户私有）。
 
 | 存储层 | 存什么 | 为什么 |
 |---|---|---|
 | **PostgreSQL** | Skill 元数据、版本记录、组织/用户绑定、权限、配额、审计日志 | 结构化查询、事务保障、简单父子关系即可 |
 | **OSS 对象存储** | SKILL.md、references/、templates/、scripts/、assets/ 内容 | 文件大小不固定、天然版本化、多地域复制、成本低 |
+| **PVC 挂载层** | OSS 通过 CSI 驱动挂载为 Kubernetes PV，Worker Pod 用 subPath 挂载租户目录 | Worker 代码按本地文件访问 Skill，无需写 OSS SDK；subPath 天然做租户隔离 |
+
+**Pod 挂载示例**（Worker 启动时按用户 tenant 挂载 subPath）：
+
+```yaml
+volumes:
+  - name: skills-volume
+    persistentVolumeClaim:
+      claimName: skills-pvc        # 整个 OSS bucket 挂为 PV
+volumeMounts:
+  - name: skills-volume
+    mountPath: /mnt/skills/public  # 只挂该 tenant 的 public 目录
+    subPath: {tenant_id}/public
+    readOnly: true
+  - name: skills-volume
+    mountPath: /mnt/skills/personal
+    subPath: {tenant_id}/personal/{user_id}
+    readOnly: false                # 个人 Skill 可写
+```
+
+这样 Worker 读 Skill 就是 `open("/mnt/skills/public/{node_id}/crm-query/v1.0.0/SKILL.md")`，不需要 OSS SDK。
 
 **OSS 对象路径规范（按租户 → scope → 草稿/已发布 分层）**：
 
@@ -348,15 +383,68 @@ def _skill_should_show(conditions, available_tools, available_toolsets) -> bool:
 
 ### 中台改造
 
-在 Hermes 维度基础上新增 ToB 维度：
+**YAML 声明（保留 Hermes 风格）**：
 
-```python
+```yaml
 requires_channel: ["feishu", "wecom"]                       # 仅特定渠道
 requires_chat_type: ["direct", "group"]                     # 仅群聊/仅私聊
 time_window: {from: "09:00", to: "18:00", weekdays: [1-5]}  # 时间窗口
 feature_flags: ["beta_feature_x"]                           # 功能开关
 fallback_for_skills: ["premium_crm"]                        # 某 Skill 不可用时的替代
 min_user_tier: "standard"                                   # 最低用户等级
+```
+
+**表结构设计**：激活条件用 `skill_activation_rules` 表存，JSONB 保留灵活性 + 常用维度抽列做索引：
+
+```sql
+CREATE TABLE skill_activation_rules (
+    rule_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    skill_id         UUID NOT NULL REFERENCES skills(skill_id),
+    version          VARCHAR(32) NOT NULL,         -- 该版本的激活规则（不同版本可不同）
+
+    -- 常用维度抽列做索引加速过滤
+    requires_channel  VARCHAR(32)[],                -- 为 NULL 表示任意渠道
+    requires_chat_type VARCHAR(16)[],
+    platforms         VARCHAR(16)[],
+    min_user_tier     VARCHAR(16),
+
+    -- 时间窗
+    active_from       TIME,
+    active_until      TIME,
+    active_weekdays   SMALLINT[],                   -- {1,2,3,4,5} = 工作日
+
+    -- 柔性维度：工具依赖、fallback、feature_flag 等
+    conditions_jsonb  JSONB NOT NULL DEFAULT '{}',
+
+    created_at        TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (skill_id, version),
+    INDEX idx_skill   (skill_id),
+    INDEX idx_channel USING GIN (requires_channel)
+);
+```
+
+**过滤流程**（Worker 在组装 Level 0 索引时执行）：
+
+```
+1. SQL 预过滤：只查 requires_channel / chat_type / platforms / min_user_tier / time_window 命中当前上下文的规则
+   → 利用常用维度列索引，快速缩减到几十条候选
+2. 应用层二次过滤：读 conditions_jsonb 判断
+   - requires_tools / requires_toolsets 是否满足当前 Worker 的工具集
+   - fallback_for_tools / fallback_for_skills 的主对象是否已可用（已可用则本 Skill 隐藏）
+   - feature_flags 是否在租户开启
+3. 剩下的 Skill 进入 Level 0 索引，LLM 可见
+```
+
+**SQL 预过滤示例**（当前：渠道飞书、群聊、周二 10:30、用户 premium）：
+
+```sql
+SELECT skill_id FROM skill_activation_rules
+WHERE (requires_channel   IS NULL OR 'feishu'   = ANY(requires_channel))
+  AND (requires_chat_type IS NULL OR 'group'    = ANY(requires_chat_type))
+  AND (platforms          IS NULL OR 'linux'    = ANY(platforms))
+  AND (min_user_tier      IS NULL OR min_user_tier <= 'premium')
+  AND (active_from        IS NULL OR '10:30' BETWEEN active_from AND active_until)
+  AND (active_weekdays    IS NULL OR 2 = ANY(active_weekdays));
 ```
 
 ---
@@ -386,13 +474,58 @@ min_user_tier: "standard"                                   # 最低用户等级
 
 ### 中台改造
 
-分布式多实例场景，缓存层替换为 Redis + 进程内 LRU：
+分布式多实例场景，缓存层替换为 Redis + 进程内 LRU + PVC 挂载：
 
-| 层 | 替代方案 | key |
-|---|---|---|
-| Level 0 索引 | Redis，TTL 5 分钟，skill_manage 写操作主动失效 | `skills:index:{tenant_id}:{user_id}` |
-| Level 1 SKILL.md | 进程内 LRU，最多 32 条 | `{skill_id}:{version}` |
-| Level 2 子文件 | OSS CDN 自带缓存 | — |
+| 层 | 替代方案 | key / 路径 | 存什么 |
+|---|---|---|---|
+| Level 0 索引 | Redis，TTL 5 分钟，skill_manage 写操作主动失效 | `skills:index:{tenant_id}:{user_id}` | `[{name, description, skill_id, current_version}]` 列表 JSON |
+| Level 1 SKILL.md | 进程内 LRU，最多 32 条 | `skill:{skill_id}:{version}` | 完整 SKILL.md 字符串 |
+| Level 2 子文件 | PVC 挂载 + OS 文件缓存 | `/mnt/skills/public/{node_id}/{skill}/v{ver}/...` | 原始文件，OS 层缓存 |
+
+**多轮对话缓存命中示例**（用户 u123，团队节点 dept_east）：
+
+```
+用户第 1 轮："帮我查下最近的销售数据"
+  ↓ Worker 组装系统提示
+  L0 查 Redis: skills:index:t_acme:u123  → MISS
+       ↓ 走 PostgreSQL 计算 Level 0 索引
+       ↓ 回填 Redis（TTL 5min）
+       ↓ 索引含 [{name: crm-query, ...}, {name: sales-report, ...}, ...]
+  返回 Level 0 索引到 system prompt
+
+  LLM 决定调用 → load_skill("sales-report")
+  L1 查进程 LRU: skill:sk_003:1.2.0 → MISS
+       ↓ 读 PVC: /mnt/skills/public/dept_east/sales-report/v1.2.0/SKILL.md
+       ↓ 回填 LRU
+  返回 SKILL.md 内容
+
+用户第 2 轮："再看看本周的 CRM 线索"（同一 Session，同一 Worker 进程）
+  ↓ L0 查 Redis: skills:index:t_acme:u123  → HIT（上一轮回填）
+  返回 Level 0 索引（~1ms）
+
+  LLM 决定调用 → load_skill("crm-query")
+  L1 查进程 LRU: skill:sk_001:2.0.1 → MISS（不同 skill_id）
+       ↓ 读 PVC 回填
+
+用户第 3 轮："再查一下销售报表的上月数据"（复用 sales-report）
+  ↓ L0 HIT（Redis 还在 TTL 内）
+  LLM 调 load_skill("sales-report")
+  L1 HIT（skill:sk_003:1.2.0 仍在 LRU 中，零 IO）
+
+管理员修补了 sales-report → v1.3.0
+  ↓ skill_manage 触发 Redis DEL skills:index:t_acme:* + LRU clear
+用户第 4 轮：
+  L0 MISS → 重新计算，发现 current_version=1.3.0
+  L1 MISS → 读 PVC 新版本路径
+```
+
+**失效策略**：
+
+| 触发 | 失效范围 |
+|---|---|
+| 发布新版本 / 回滚 `current_version` | DEL 相关 tenant 的 Redis Level 0 key；LRU 按 skill_id 清除 |
+| 激活规则改动 | DEL 该 tenant 全部 Level 0 key（粗粒度，规则改动频率低） |
+| 用户父节点变更 | DEL 该 user_id 的 Level 0 key |
 
 ---
 
@@ -456,12 +589,79 @@ skill_view("axolotl")
 }
 ```
 
-### 中台改造
+### 中台改造：优化前后效果评估 + 沙箱运行
 
-十步流程整体保留，扩展两项阻断检查：
+中台在 Hermes 十步 `skill_view` 之外新增**版本效果评估**，解决"修补后是变好了还是变差了"的判断。评估必须在沙箱环境内做，避免影响生产。
 
-- **配额检查**：命中 `quotas.per_user_daily` / `per_tenant_daily` → QUOTA_EXCEEDED
-- **可见性检查**：Skill 不属于用户本人（personal）也不属于用户直接父节点（public）→ FORBIDDEN
+**评估触发时机**：
+
+| 触发 | 行为 |
+|---|---|
+| `skill_manage(patch/edit)` 提交审核时 | 自动拉起沙箱跑评估，结果附在 proposal 上供审核人参考 |
+| 管理员手动触发 | 在控制台对任意版本补跑评估 |
+| 定期回归 | 每月对高频使用 Skill 跑一次，检测是否因外部工具变化而退化 |
+
+**沙箱环境**：
+
+- 独立 Kubernetes Namespace，只挂载对应租户的 PVC 子路径（read-only）
+- 独立数据库副本（只读，或影子表），避免污染生产数据
+- 外部 API 走 Mock / Record-Replay（记录真实响应后在沙箱重放，保证可重复）
+- 凭证走专用的"评估 Vault 路径"，额度隔离
+
+**评估流程**：
+
+```
+skill_manage(patch) 提交
+    ↓
+系统挑选评估集（来自该 Skill 最近 N 次真实调用的输入，脱敏后存为 test_cases）
+    ↓
+并发在沙箱跑两轮：
+    ├─ A 组：Skill 旧版本（当前 current_version）
+    └─ B 组：Skill 新版本（proposal 中的草稿）
+    ↓
+采集指标并比较（见下表），生成评估报告
+    ↓
+报告附在 skill_proposal 上
+    ↓
+审核人决策（批准/拒绝/要求修改）
+```
+
+**关键评估指标**：
+
+| 指标 | 含义 | 判定 |
+|---|---|---|
+| `success_rate` | 测试用例完成率（LLM 是否返回可执行结果） | 新版本 ≥ 旧版本 |
+| `avg_tool_calls` | 平均工具调用次数 | 越少越好（说明更高效） |
+| `avg_tokens_used` | 平均 token 消耗 | 越少越好 |
+| `avg_latency_ms` | 平均完成时间 | 不显著变差 |
+| `pitfall_hits` | 触发已知陷阱的次数（Skill 内 Pitfalls 章节） | 新版本 ≤ 旧版本 |
+| `security_incidents` | 沙箱内触发安全扫描告警次数 | 必须为 0 |
+
+**表结构**：
+
+```sql
+CREATE TABLE skill_evaluations (
+    eval_id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    proposal_id       UUID REFERENCES skill_proposals(proposal_id),
+    skill_id          UUID NOT NULL,
+    old_version       VARCHAR(32),                -- 旧版本（对照组）
+    new_version       VARCHAR(32) NOT NULL,       -- 新版本（试验组）
+    test_case_count   INT NOT NULL,
+    metrics_old       JSONB,                      -- 旧版本采集的指标
+    metrics_new       JSONB,                      -- 新版本采集的指标
+    verdict           VARCHAR(16),                -- improved / neutral / regressed
+    auto_approvable   BOOLEAN,                    -- 所有指标不劣化且至少一项改进 → true
+    created_at        TIMESTAMPTZ DEFAULT now()
+);
+```
+
+**自动放行规则**：
+
+- 所有指标不劣化（`success_rate` / `pitfall_hits` / `security_incidents` 不变差）
+- 至少一项指标显著改进（success_rate 提升、tokens 下降、tool_calls 下降）
+- → `auto_approvable=true`，Owner 审核界面显示"建议批准"
+
+否则进入人工审核，评估报告作为关键决策依据。
 
 ---
 
@@ -473,13 +673,50 @@ skill_view("axolotl")
 
 ### 中台改造
 
-新增 `fallback_for_skills`：
+新增 `fallback_for_skills` 声明：
 
 ```yaml
-fallback_for_skills: ["premium_crm"]   # premium_crm 不可用（配额/未授权）时启用本 Skill
+# basic-crm SKILL.md
+fallback_for_skills: ["premium-crm"]   # premium-crm 不可用时启用本 Skill
 ```
 
-解决企业场景下高配 Skill 不可用时的降级（如 premium_crm → basic_crm）。
+**语义**：主 Skill（premium-crm）可见时，本 Skill（basic-crm）隐藏不进 Level 0 索引；主 Skill 不可用（配额超限 / 未授权 / 激活条件不满足）时自动顶上。
+
+**表结构**：抽出独立表便于查询"某 Skill 的 fallback 链"：
+
+```sql
+CREATE TABLE skill_fallbacks (
+    fallback_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    skill_id         UUID NOT NULL REFERENCES skills(skill_id),  -- 降级 Skill（basic-crm）
+    primary_skill_id UUID NOT NULL REFERENCES skills(skill_id),  -- 主 Skill（premium-crm）
+    priority         SMALLINT NOT NULL DEFAULT 0,                -- 多个备选时的优先级（越大越先尝试）
+    created_at       TIMESTAMPTZ DEFAULT now(),
+    INDEX idx_primary (primary_skill_id),
+    INDEX idx_skill   (skill_id)
+);
+```
+
+**使用流程**（Worker 组装 Level 0 索引时）：
+
+```
+1. 先算出用户可见 Skills（#13 的两级继承查询）
+2. 对每个 Skill 查是否存在 fallback_for 关系：
+   SELECT fallback_id, skill_id FROM skill_fallbacks WHERE primary_skill_id = ANY(:visible_ids)
+3. 若主 Skill 的激活条件可满足（配额未超 + 授权通过 + 激活规则命中）
+   → 主 Skill 进 Level 0，所有 fallback Skill 隐藏
+4. 若主 Skill 任一检查失败
+   → 主 Skill 隐藏，按 priority 降序启用 fallback Skill
+5. 若所有 fallback 也不可用
+   → 全部隐藏，LLM 不会看到这组 Skill
+```
+
+**典型场景**：
+
+| 场景 | 主 Skill | Fallback | 效果 |
+|---|---|---|---|
+| 配额耗尽 | premium-crm（500 次/日） | basic-crm（无限） | 白天用 premium，晚上耗尽后自动切 basic |
+| 非工作时间 | workday-support（仅 9-18 点） | off-hour-support | 下班后切到值班 Skill |
+| 租户未授权 | enterprise-bi | community-bi | 未买企业版的租户只看到社区版 |
 
 ---
 
