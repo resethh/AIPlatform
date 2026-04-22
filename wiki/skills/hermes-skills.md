@@ -32,6 +32,23 @@
 - 发现了非显而易见的工作流程
 - 用户明确要求"记住这个做法"
 
+### 实现机制：硬编码 Prompt 驱动
+
+"LLM 自主判断"不是凭感觉，而是通过 `SKILLS_GUIDANCE` 常量注入 system prompt 实现的（`agent/prompt_builder.py:164-171`）：
+
+```python
+SKILLS_GUIDANCE = (
+    "After completing a complex task (5+ tool calls), fixing a tricky error, "
+    "or discovering a non-trivial workflow, save the approach as a "
+    "skill with skill_manage so you can reuse it next time.\n"
+    "When using a skill and finding it outdated, incomplete, or wrong, "
+    "patch it immediately with skill_manage(action='patch') — don't wait to be asked. "
+    "Skills that aren't maintained become liabilities."
+)
+```
+
+**设计要点**：两段指令分别对应两个行为——"完成后主动保存"和"发现过时立即修补"。LLM 读到这段 prompt 后会在满足条件时自发调用 `skill_manage`，无需用户提醒。
+
 ### 创建流程
 
 ```
