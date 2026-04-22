@@ -57,7 +57,7 @@ skill_manage(action="create", name="xxx", content="...")
     └── 安全扫描 → 不通过则回滚删除
 ```
 
-**SKILL.md 格式**：
+**SKILL.md 格式**：(**与原生skill有区别**)
 
 ```yaml
 ---
@@ -73,13 +73,10 @@ required_environment_variables:
 metadata:
   hermes:
     tags: [tag1, tag2]
-    requires_toolsets: [terminal]
-    fallback_for_tools: [web_search]
+    requires_toolsets: [terminal]      # 需要特定工具集才激活
+    fallback_for_tools: [web_search]   # 当某工具不可用时才激活
 ---
-## 触发条件
-## 步骤
-## 注意事项
-## Pitfalls
+
 ```
 
 ### 中台改造
@@ -375,6 +372,12 @@ OSS 下载 SKILL.md（走 CDN 加速，通常 <10ms）
 ---
 
 ## 5. 条件激活
+
+> **定位**：条件激活属于**上下文工程**的范畴——它决定哪些 Skill 元数据进入 LLM 的 system prompt。与 #4 渐进加载、#13 两级继承共同构成 Skill 索引的三级过滤链：
+>
+> **#13 两级继承**（权限边界） → **#5 条件激活**（场景相关性） → **#4 渐进加载**（token 压缩）
+>
+> 完整链路与 token 预算分配见 [[context/context-management.md]] §Skill 索引的上下文工程职责。
 
 ### Hermes 实现
 
