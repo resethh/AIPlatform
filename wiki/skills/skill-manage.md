@@ -133,21 +133,55 @@ enterprise:
 
 ### 中台改造
 
-元数据 PostgreSQL，内容 OSS 对象存储。职责划分：
+元数据 PostgreSQL，内容 OSS 对象存储。Skill 分两大类：**公共 Skill**（组织内共享）和**个人 Skill**（用户私有）。
 
 | 存储层 | 存什么 | 为什么 |
 |---|---|---|
-| **PostgreSQL** | Skill 元数据、版本记录、组织绑定、权限、配额、审计日志 | 结构化查询、组织树（ltree）、事务保障 |
+| **PostgreSQL** | Skill 元数据、版本记录、组织/用户绑定、权限、配额、审计日志 | 结构化查询、组织树（ltree）、事务保障 |
 | **OSS 对象存储** | SKILL.md、references/、templates/、scripts/、assets/ 内容 | 文件大小不固定、天然版本化、多地域复制、成本低 |
 
-**OSS 对象路径规范**：
+**OSS 对象路径规范（公共 / 个人分离）**：
 
 ```
-skills/{tenant_id}/{skill_name}/{version}/SKILL.md
-skills/{tenant_id}/{skill_name}/{version}/references/{file}
-skills/{tenant_id}/{skill_name}/{version}/templates/{file}
-skills/{tenant_id}/{skill_name}/{version}/scripts/{file}
-skills/{tenant_id}/{skill_name}/{version}/assets/{file}
+# 公共 Skill（组织树节点拥有，owner_node 为组织路径）
+skills/public/{tenant_id}/{owner_node}/{skill_name}/{version}/SKILL.md
+skills/public/{tenant_id}/{owner_node}/{skill_name}/{version}/references/{file}
+skills/public/{tenant_id}/{owner_node}/{skill_name}/{version}/templates/{file}
+skills/public/{tenant_id}/{owner_node}/{skill_name}/{version}/scripts/{file}
+skills/public/{tenant_id}/{owner_node}/{skill_name}/{version}/assets/{file}
+
+# 个人 Skill（用户私有，owner_node = users.{user_id}）
+skills/personal/{tenant_id}/{user_id}/{skill_name}/{version}/SKILL.md
+skills/personal/{tenant_id}/{user_id}/{skill_name}/{version}/references/{file}
+...
+```
+
+**两类 Skill 对比**：
+
+| 维度 | 公共 Skill | 个人 Skill |
+|---|---|---|
+| 归属 | 组织节点（platform/tenant/bu/dept） | 用户个人 |
+| 可见范围 | 按组织树继承，祖先节点可见后代 | 仅本人 |
+| 创建流程 | 草稿 → 审核 → 发布 | 用户自助创建，无需审核（Hermes 式） |
+| 版本管理 | 灰度发布（canary→beta→stable） | 直接覆盖，保留历史版本便于回滚 |
+| 安全扫描 | 强制（阻断） | 强制（阻断） |
+| 覆盖关系 | 个人 Skill 同名时优先级最高（override 组织级） | — |
+
+**合并查询**（当前用户 `user_id=u123`，`owner_node=acme.sales.east`）：
+
+```sql
+-- 公共 Skill：按组织树祖先路径 + 就近覆盖
+SELECT DISTINCT ON (name) * FROM skills
+WHERE tenant_id = $1 AND scope = 'public'
+  AND owner_node @> 'acme.sales.east'::ltree
+  AND status = 'stable'
+ORDER BY name, nlevel(owner_node) DESC
+
+UNION ALL
+
+-- 个人 Skill：直接取本人
+SELECT * FROM skills
+WHERE tenant_id = $1 AND scope = 'personal' AND user_id = 'u123';
 ```
 
 **PostgreSQL Schema**：
@@ -156,16 +190,19 @@ skills/{tenant_id}/{skill_name}/{version}/assets/{file}
 CREATE TABLE skills (
     skill_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id     UUID NOT NULL,
+    scope         VARCHAR(16) NOT NULL,         -- public / personal
+    user_id       UUID,                         -- scope=personal 必填，public 为 NULL
     name          VARCHAR(64) NOT NULL,
     version       VARCHAR(32) NOT NULL,         -- 语义化版本
     status        VARCHAR(16) NOT NULL,         -- canary/beta/stable/deprecated
     trust_level   SMALLINT NOT NULL,            -- 0-5
-    owner_node    ltree NOT NULL,               -- 组织树路径
+    owner_node    ltree NOT NULL,               -- 组织路径 或 users.{user_id}
     oss_key       VARCHAR(512) NOT NULL,        -- OSS 对象路径
     created_at    TIMESTAMPTZ DEFAULT now(),
     updated_at    TIMESTAMPTZ DEFAULT now(),
-    INDEX idx_tenant_name (tenant_id, name),
-    INDEX idx_owner_node  USING GIST (owner_node)
+    INDEX idx_tenant_scope_name (tenant_id, scope, name),
+    INDEX idx_owner_node USING GIST (owner_node),
+    INDEX idx_user_personal (tenant_id, user_id) WHERE scope = 'personal'
 );
 
 CREATE TABLE skill_versions (
