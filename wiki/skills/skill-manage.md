@@ -140,20 +140,46 @@ enterprise:
 | **PostgreSQL** | Skill 元数据、版本记录、组织/用户绑定、权限、配额、审计日志 | 结构化查询、组织树（ltree）、事务保障 |
 | **OSS 对象存储** | SKILL.md、references/、templates/、scripts/、assets/ 内容 | 文件大小不固定、天然版本化、多地域复制、成本低 |
 
-**OSS 对象路径规范（公共 / 个人分离）**：
+**OSS 对象路径规范（按租户 → scope → 草稿/已发布 分层）**：
 
 ```
-# 公共 Skill（组织树节点拥有，owner_node 为组织路径）
-skills/public/{tenant_id}/{owner_node}/{skill_name}/{version}/SKILL.md
-skills/public/{tenant_id}/{owner_node}/{skill_name}/{version}/references/{file}
-skills/public/{tenant_id}/{owner_node}/{skill_name}/{version}/templates/{file}
-skills/public/{tenant_id}/{owner_node}/{skill_name}/{version}/scripts/{file}
-skills/public/{tenant_id}/{owner_node}/{skill_name}/{version}/assets/{file}
+# 公共 Skill - 草稿（审核前，审核通过后迁移到 public 路径）
+skills/{tenant_id}/drafts/{proposal_id}/SKILL.md
+skills/{tenant_id}/drafts/{proposal_id}/references/{file}
+skills/{tenant_id}/drafts/{proposal_id}/templates/{file}
+skills/{tenant_id}/drafts/{proposal_id}/scripts/{file}
+skills/{tenant_id}/drafts/{proposal_id}/assets/{file}
 
-# 个人 Skill（用户私有，owner_node = users.{user_id}）
-skills/personal/{tenant_id}/{user_id}/{skill_name}/{version}/SKILL.md
-skills/personal/{tenant_id}/{user_id}/{skill_name}/{version}/references/{file}
-...
+# 公共 Skill - 已发布（canary / beta / stable / deprecated）
+skills/{tenant_id}/public/{owner_node}/{skill_name}/v{version}/SKILL.md
+skills/{tenant_id}/public/{owner_node}/{skill_name}/v{version}/references/{file}
+skills/{tenant_id}/public/{owner_node}/{skill_name}/v{version}/templates/{file}
+skills/{tenant_id}/public/{owner_node}/{skill_name}/v{version}/scripts/{file}
+skills/{tenant_id}/public/{owner_node}/{skill_name}/v{version}/assets/{file}
+
+# 个人 Skill（无草稿阶段，用户自助创建直接版本化）
+skills/{tenant_id}/personal/{user_id}/{skill_name}/v{version}/SKILL.md
+skills/{tenant_id}/personal/{user_id}/{skill_name}/v{version}/references/{file}
+skills/{tenant_id}/personal/{user_id}/{skill_name}/v{version}/templates/{file}
+skills/{tenant_id}/personal/{user_id}/{skill_name}/v{version}/scripts/{file}
+skills/{tenant_id}/personal/{user_id}/{skill_name}/v{version}/assets/{file}
+```
+
+**草稿 → 审核 → 发布 流程**：
+
+```
+Agent/用户提议创建
+    ↓
+写入 skill_proposals 表（status=draft）
+    ↓
+内容写入 OSS: skills/{tenant_id}/drafts/{proposal_id}/
+    ↓
+通知 Skill Owner 审核（status=under_review）
+    ↓
+批准 → 复制 OSS 对象到 skills/{tenant_id}/public/{owner_node}/{skill_name}/v{version}/
+       → 写入 skills 表，status=canary
+       → 草稿路径保留 30 天供审计，之后归档
+拒绝 → status=rejected，草稿保留 30 天后删除
 ```
 
 **两类 Skill 对比**：
@@ -212,6 +238,25 @@ CREATE TABLE skill_versions (
     changelog     TEXT,
     published_at  TIMESTAMPTZ DEFAULT now(),
     PRIMARY KEY (skill_id, version)
+);
+
+-- 草稿/提议表（仅公共 Skill 走此流程，个人 Skill 不需要）
+CREATE TABLE skill_proposals (
+    proposal_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id     UUID NOT NULL,
+    owner_node    ltree NOT NULL,               -- 目标组织路径
+    proposed_name VARCHAR(64) NOT NULL,
+    action        VARCHAR(16) NOT NULL,         -- create / patch / edit
+    base_skill_id UUID,                         -- patch/edit 时引用现有 skill
+    proposer_id   UUID NOT NULL,                -- 提议人（用户或 Agent）
+    trigger_type  VARCHAR(32),                  -- complex_task_completed / error_recovery / user_correction / repeated_workflow
+    status        VARCHAR(16) NOT NULL,         -- draft / under_review / approved / rejected
+    oss_key       VARCHAR(512) NOT NULL,        -- 草稿 OSS 路径
+    reviewer_id   UUID,
+    review_note   TEXT,
+    created_at    TIMESTAMPTZ DEFAULT now(),
+    reviewed_at   TIMESTAMPTZ,
+    INDEX idx_tenant_status (tenant_id, status)
 );
 
 CREATE TABLE skill_audit_logs (
