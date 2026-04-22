@@ -97,37 +97,40 @@ LLM 提炼草稿（name/description/procedure/pitfalls）
 拒绝：归档，附理由
 ```
 
-**SKILL.md 格式扩展** `enterprise` 块：
+**SKILL.md 扩展**：只保留**作者自评**的属性，运行时配置全部落 DB。
 
 ```yaml
-enterprise:
-  trust_level: enterprise_official
-  owner_node_id: <团队/部门在 org_nodes 的主键>
-  security:
-    risk_level: medium
-    data_classification: internal
-    pii_involved: true
-  activation:
-    requires_channel: [feishu, wecom]
-    time_window: {from: "08:00", to: "22:00", weekdays: [1,2,3,4,5]}
-  quotas:
-    per_user_daily: 200
-    per_tenant_daily: 10000
+# Skill 本体依赖（不可由运维改，改了就是另一个 Skill）
+platforms: [linux]
+required_environment_variables: [...]
+fallback_for_skills: ["premium-crm"]
+
+# 作者自评：安全属性（作为 DB 的默认值，admin 可在 DB 覆盖）
+security_claims:
+  risk_level: medium            # low / medium / high
+  data_classification: internal # public / internal / confidential / pii
+  pii_involved: true            # 是否涉及个人信息
 ```
 
-**enterprise 块的作用**：把 ToB 才需要的元数据集中在 YAML 里统一管理，创建/发布时由系统解析写入对应表，避免散落到多个管理界面。各字段对应下游消费方：
+**字段归属**：哪些存 SKILL.md，哪些存 DB，哪些两者默认关系？
 
-| 字段 | 作用 | 下游消费 |
-|---|---|---|
-| `trust_level` | 标识 Skill 来源的信任等级，决定是否自动批准、是否跑沙箱 | #11 Skills Hub 的 6 级信任体系 |
-| `owner_node_id` | 标识 Skill 归属的组织节点（团队/部门） | #13 两级继承查询的 owner_id 字段 |
-| `security.risk_level` | 运行时风险等级（影响 Worker 沙箱强度） | #12 安全扫描 + 运行时沙箱配置 |
-| `security.data_classification` | 数据密级（internal/confidential/pii），控制日志脱敏等级 | 审计日志 + DLP 扫描 |
-| `security.pii_involved` | 是否涉及个人信息，触发 PII 合规检查 | 合规审计 + 数据治理 |
-| `activation.*` | 渠道 / 时间 / 平台等激活条件 | #5 写入 `skill_activation_rules` 表 |
-| `quotas.*` | 每用户 / 每租户每日调用次数上限 | #8 skill_view 的配额检查阻断 |
+| 字段 | SKILL.md | DB 表 / 列 | 说明 |
+|---|---|---|---|
+| 名称 / 描述 / 步骤 | ✅ | — | Skill 本体内容，YAML 为准 |
+| `platforms` / `required_environment_variables` | ✅ | — | Skill 本体依赖，改了就是另一个 Skill |
+| `fallback_for_skills` | ✅ | `skill_fallbacks` 表 | YAML 声明降级目标，发布时写入表（#9） |
+| `trust_level` | ❌ | `skills.trust_level` | 由安装来源决定（builtin/marketplace），作者无权声明 |
+| `owner_node_id` | ❌ | `skills.owner_id` | 发布时指定组织节点，同一 Skill 可发布到不同节点 |
+| `security_claims.*` | ✅（自评） | `skills.risk_level` / `data_classification` / `pii_involved` | SKILL.md 是默认值，admin 可在 DB 覆盖；DB 值优先 |
+| `activation.*`（渠道/时间/平台/用户等级） | ❌ | `skill_activation_rules` 表 | 运维要随时调，不走 YAML（#5） |
+| `quotas.*`（调用次数配额） | ❌ | `skill_quotas` 表 | 运维随时调整 |
 
-**原则**：enterprise 块是**声明式**的——YAML 里写完，CI/发布流水线自动同步到表。不走 YAML 的改动（如运维调整配额）可直接改表，表为准，YAML 下次发布时同步回来。
+**原则**：
+1. **Skill 本体** 归 YAML（作者负责，改了是新版本）
+2. **作者自评** 归 YAML（`security_claims`），作为 DB 默认值
+3. **运行时可调配置**（trust_level / activation / quotas）只存 DB，**不在 SKILL.md 里出现**
+
+这样避免 YAML ↔ DB 双写冲突：运维调 DB 不会被下次发布覆盖，作者改 YAML 不影响运维配置。
 
 ---
 
@@ -258,15 +261,19 @@ CREATE TABLE users (
 
 -- Skill 表（一个 skill 一行，版本通过 current_version 指针）
 CREATE TABLE skills (
-    skill_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id        UUID NOT NULL,
-    scope            VARCHAR(16) NOT NULL,    -- public / personal
-    owner_id         UUID NOT NULL,           -- scope=public 时指向 org_nodes.node_id；scope=personal 时指向 users.user_id
-    name             VARCHAR(64) NOT NULL,
-    current_version  VARCHAR(32) NOT NULL,    -- 指向 skill_versions.version
-    trust_level      SMALLINT NOT NULL,       -- 0-5
-    created_at       TIMESTAMPTZ DEFAULT now(),
-    updated_at       TIMESTAMPTZ DEFAULT now(),
+    skill_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id           UUID NOT NULL,
+    scope               VARCHAR(16) NOT NULL,    -- public / personal
+    owner_id            UUID NOT NULL,           -- scope=public 时指向 org_nodes.node_id；scope=personal 时指向 users.user_id
+    name                VARCHAR(64) NOT NULL,
+    current_version     VARCHAR(32) NOT NULL,    -- 指向 skill_versions.version
+    trust_level         SMALLINT NOT NULL,       -- 0-5，由安装来源决定，作者无权声明
+    -- 安全属性：默认值来自 SKILL.md 的 security_claims，admin 可在 DB 覆盖
+    risk_level          VARCHAR(16) NOT NULL,    -- low / medium / high
+    data_classification VARCHAR(16) NOT NULL,    -- public / internal / confidential / pii
+    pii_involved        BOOLEAN NOT NULL DEFAULT false,
+    created_at          TIMESTAMPTZ DEFAULT now(),
+    updated_at          TIMESTAMPTZ DEFAULT now(),
     UNIQUE (tenant_id, scope, owner_id, name),
     INDEX idx_tenant_scope_owner (tenant_id, scope, owner_id)
 );
@@ -307,6 +314,17 @@ CREATE TABLE skill_audit_logs (
     action        VARCHAR(32) NOT NULL,         -- create/update/approve/reject/install/invoke
     detail        JSONB,
     created_at    TIMESTAMPTZ DEFAULT now()
+);
+
+-- 配额表（运维可随时调整，不走 SKILL.md）
+CREATE TABLE skill_quotas (
+    skill_id         UUID PRIMARY KEY REFERENCES skills(skill_id),
+    per_user_daily   INT,                      -- NULL 表示不限
+    per_user_hourly  INT,
+    per_tenant_daily INT,
+    burst_limit      INT,                      -- 突发上限（秒级）
+    updated_by       UUID,
+    updated_at       TIMESTAMPTZ DEFAULT now()
 );
 ```
 
