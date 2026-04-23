@@ -91,6 +91,77 @@ Worker Claw（执行平面）
 
 ---
 
+## 动态凭证支持
+
+静态 API key 只是最简单的情形。生产环境大量 API 使用**动态凭证**——需要运行时获取、按 TTL 刷新、按请求签名。这类场景下 Gateway 的角色从"代理静态凭证"升级为 **凭证获取与生命周期管理器**，Worker 依然完全无感。
+
+### 典型动态凭证类型
+
+| 场景 | 管理员配置（根凭证） | Gateway 运行时行为 |
+|---|---|---|
+| **OAuth2 client_credentials**（服务间） | `client_id` + `client_secret` + token endpoint | 首次调用换 access_token，按 `expires_in` 缓存，过期前 60s 主动刷新 |
+| **OAuth2 authorization_code**（用户级，如 GitHub / Google） | `client_id` + `client_secret` + redirect_uri | 用户首次使用走浏览器授权流，refresh_token 按 user_id 存 Vault；调用前换 access_token |
+| **AWS STS / AssumeRole** | base IAM 凭证 + `role_arn` + `external_id` | 每次调用（或 15 分钟缓存）前 AssumeRole，用临时凭证签名转发 |
+| **AWS SigV4** | `access_key` + `secret_key` | 每次转发按请求路径 / headers / body 计算签名，加到 Authorization 头 |
+| **JWT 服务账号**（GCP / 企业内部） | signing key（RSA 私钥）+ 声明模板 | 按 TTL 缓存签发的 JWT，过期前重签 |
+| **Session-based login** | 用户名/密码 或 登录凭证 | 维护 session pool，cookie 过期或 401 时重登录 |
+| **mTLS**（客户端证书） | 客户端证书 + 私钥 | 转发时用证书建立 TLS 通道，Worker 无感知 |
+
+### 统一抽象：credential_provider 插件
+
+MCP Server YAML 里声明认证类型，Gateway 加载对应的 provider 插件：
+
+```yaml
+mcp_server: billing
+endpoint: https://billing.internal.company.com
+auth:
+  type: oauth2_client_credentials
+  provider_config:
+    token_url: https://auth.internal.company.com/oauth/token
+    client_id_ref: vault://oauth/billing/client_id
+    client_secret_ref: vault://oauth/billing/client_secret
+    scope: "billing:read billing:write"
+  cache:
+    refresh_before_expiry_sec: 60
+```
+
+Provider 统一接口：
+
+```python
+class CredentialProvider:
+    def get_credential(self, request_context) -> dict:
+        """返回当前该请求的认证 headers / params"""
+
+    def on_auth_failure(self, response) -> bool:
+        """401/403 时是否重试（刷新凭证后重试一次）"""
+```
+
+已知插件库：`static_api_key` / `oauth2_cc` / `oauth2_ac` / `aws_sts` / `aws_sigv4` / `jwt_service_account` / `session_login` / `mtls`。
+
+### Swagger 导入的扩展流程
+
+```
+管理员：Swagger URL + 认证配置
+Manager：
+  ① 解析 Swagger 的 securitySchemes 块（OpenAPI 标准字段）
+     - securitySchemes.oauth2   → auth_type=oauth2
+     - securitySchemes.http     → bearer → auth_type=static_bearer
+     - securitySchemes.apiKey   → auth_type=static_api_key
+  ② 根据 auth_type 选对应 credential_provider 插件
+  ③ 动态凭证：让管理员补充根凭证（OAuth client_secret / STS base key / JWT signing key 等）
+  ④ 部署到 Gateway，provider 插件启动
+```
+
+### 关键设计要点
+
+1. **根凭证 vs 运行时凭证**：OAuth 的 `client_secret`、STS 的 IAM base key 是"根凭证"——配置一次、长期有效、存 Vault；换出来的短期 token 在 Gateway 内存里，不落盘
+2. **缓存粒度**：服务级凭证（client_credentials）按 `mcp_server` 缓存；用户级凭证（authorization_code）按 `mcp_server + user_id` 缓存
+3. **失败重试**：遇 401/403 时 provider 自动 refresh 一次再重试，第二次仍失败才返回错误给 Worker
+4. **审计**：每次凭证获取 / 刷新 / 失败都写审计日志，追踪"谁代表谁调用了什么"
+5. **对 Worker 完全透明**：Worker 始终只写 `mcporter.call("billing.get_customer", ...)`，不关心下面是静态 key、OAuth token、还是每次现算的 STS 临时凭证
+
+---
+
 ## 工具批量接入能力
 
 ### 从 Swagger/OpenAPI 导入

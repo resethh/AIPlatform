@@ -64,6 +64,16 @@
 
 ## 2026-04-22
 
+### 如何理解 MCP 采用 Manager-Worker 分离架构
+**请求**: 如何理解 MCP 采用 Manager-Worker 分离架构
+**回答概要**: 核心是把 Agent 系统拆成两个不同信任域——Worker（污染区，LLM 驱动、易被注入）只拿可吊销的 consumer token；Manager+Gateway（洁净区）持有真实凭证。传统方案（加密存盘 / 环境变量 / 短期令牌）都无法解决"凭证进入 Agent 进程即泄露"的根本问题，只有物理分离 + 强可信代理才能切断链路。适用于多租户 ToB、生产环境高价值 API、合规审计场景；额外收获是细粒度吊销——Worker 被攻破只需吊销 token，无需轮换真实凭证
+**相关页面**: [[architecture/mcp-management.md]]
+
+### Swagger/OpenAPI 导入遇到动态凭证怎么办
+**请求**: 从 Swagger/OpenAPI 导入，如果是要动态获取的 key 呢
+**回答概要**: Gateway 角色从"代理静态凭证"升级为"凭证获取与生命周期管理器"，Worker 依然无感。通过 credential_provider 插件体系统一抽象 8 种典型认证（OAuth2 cc/ac、AWS STS/SigV4、JWT、Session、mTLS 等），Swagger 导入时解析 securitySchemes 自动选 provider。关键区分根凭证（Vault 长期）与运行时凭证（内存短期），缓存按服务级/用户级分粒度。已补入 mcp-management.md
+**相关页面**: [[architecture/mcp-management.md]]
+
 ### 收录 HiClaw 1.0.6 并汇总 Skill 管理挑战
 **请求**: 处理新资料 HiClaw 1.0.6，并总结 Skill 管理哪些挑战点形成新文档
 **回答概要**: 新建 `architecture/mcp-management.md`（HiClaw Manager-Worker + AI Gateway 凭证代理模式）；新建 `skills/skill-challenges.md`（8 项挑战域：上下文工程/多租户/Skill 演进/版本管理/运行时安全/配额降级/分布式一致性/MCP 协同），每项含本质-难点-方案-残余风险；更新 INDEX.md 和 log.md
