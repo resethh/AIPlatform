@@ -41,3 +41,26 @@
 - HiClaw 提供 Manager-Worker 分离 + AI Gateway 凭证代理模式，凭证零暴露
 - MCP 与 Skill 分层协同：MCP 管权限，Skill 管场景
 - Skill 挑战汇总涵盖上下文工程 / 多租户 / 安全 / 自进化四个主要问题域，每项含残余风险
+
+---
+
+## 2026-04-24 — MCP 管理融合 Anthropic 行业实践
+
+| 收录文件 | 归属模块 | 新建/更新页面 |
+|---|---|---|
+| Building agents that reach production systems with MCP.md（Anthropic Claude 团队博客） | `wiki/architecture/` | [[mcp-management.md]] 补充 4 个章节 |
+
+**补充内容**：
+- 新增"为什么选 MCP"：Direct API / CLI / MCP 三路径对比 + M×N 集成问题
+- 新增"MCP Server 设计模式"：远程优先 / 按 intent 分组 / code orchestration（Cloudflare 2 工具覆盖 2500 端点）/ 富语义（MCP Apps + Elicitation）
+- 动态凭证章节补"行业对照"：CIMD + Claude Managed Agents Vaults 与 HiClaw Gateway 同构
+- 新增"Client 侧上下文优化"：Tool Search（-85% token）+ Programmatic Tool Calling（-37% token）
+- Skill 协同补"Plugin 打包分发" 和 "从 MCP Server 分发 Skill"（MCP 社区 experimental-ext-skills 扩展）
+
+### 同日新增 `wiki/insights/` 综合洞察模块
+
+| 新建文件 | 内容 |
+|---|---|
+| `wiki/insights/综合问题.md` ⭐新模块 | Skill × MCP × Agent 三者区别（首条） |
+
+**规则确立**：CLAUDE.md 新增"分类不明确的问答归入 `wiki/insights/综合问题.md`"规则，INDEX.md 增加"综合洞察"模块入口。

@@ -10,7 +10,7 @@
 | 系统架构 | `wiki/architecture/` | [[deerflow.md]] | DeerFlow Agent：LangGraph StateGraph / Lead + 子 Agent 并发 / 异步记忆 |
 | 系统架构 | `wiki/architecture/` | [[deerflow-agent.md]] | DeerFlow Agent 执行架构：13 层中间件 / 子 Agent 线程池 / Skill 渐进加载实现 |
 | 系统架构 | `wiki/architecture/` | [[decision-log.md]] | 架构决策日志（ADR 汇总）：记录每个关键设计的背景与取舍 |
-| 系统架构 | `wiki/architecture/` | [[mcp-management.md]] | MCP Server 管理方案：Manager-Worker 分离 + AI Gateway 凭证代理，Worker 凭证零暴露（参考 HiClaw） |
+| 系统架构 | `wiki/architecture/` | [[mcp-management.md]] | MCP Server 管理方案：为何选 MCP / Server 设计模式 / Manager-Worker + Gateway 凭证零暴露 / Client 上下文优化（融合 HiClaw 与 Anthropic 实践） |
 | 安全 | `wiki/security/` | [[agent-security.md]] | Agent 安全体系：8 层纵深防御，覆盖 Prompt 注入 / 供应链 / 权限 / 审计 |
 | 记忆机制 | `wiki/memory/` | [[memory-management.md]] | AI 中台记忆总设计：三层存储 / 时间衰减 / 睡眠巩固 / 跨 Session 持久化 |
 | 记忆机制 | `wiki/memory/` | [[deerflow-memory.md]] | DeerFlow 记忆实现：facts JSON + 防抖异步队列 + 时间衰减权重 |
@@ -25,7 +25,8 @@
 | 时序流程 | `wiki/flows/` | [[multi-agent.md]] | 多 Agent 协调：Lead 委派 → SubagentExecutor 并发（最多 3）→ 结果汇总 |
 | 时序流程 | `wiki/flows/` | [[memory-lifecycle.md]] | 记忆生命周期：Session 启动注入 → 防抖异步更新 → 结束巩固 → 睡眠深度整合 |
 | 框架对比 | `wiki/` | [[comparison.md]] | Hermes / OpenClaw / DeerFlow 九维度横向对比 + 中台选型建议 |
-| 问答 | `wiki/` | [[QA.md]] | 历史提问记录（MCP 机制 / Skill 加载 / 凭证管理） |
+| 问答归档 | `wiki/` | [[用户问题.md]] | 完整问答归档（问题 + 回答 + 相关页面），按时间顺序追加 |
+| 提问时间线 | `wiki/` | [[QA.md]] | 只记录用户问题 + 日期的骨架索引（完整答案在 用户问题.md） |
 | 收录日志 | `wiki/` | [[log.md]] | 资料收录历史 |
 
 ---
@@ -79,6 +80,10 @@
 
 **了解安全**
 - 威胁全景 + 防御体系 → [[security/agent-security.md]]
+
+**用户问答记录**
+- 完整问答归档（问题 + 回答）→ [[用户问题.md]]
+- 提问时间线（只有问题）→ [[QA.md]]
 
 **查看系统时序图**
 - 消息全链路（骨架）→ [[flows/message-pipeline.md]]
