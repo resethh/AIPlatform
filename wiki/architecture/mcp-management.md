@@ -136,6 +136,62 @@ Worker Claw（执行平面）
 - Consumer token：Gateway → Worker（可随时吊销，作用域限定）
 - 工具调用：Worker → Gateway → 真实 API（Gateway 替换为真实凭证转发）
 
+### 时序图
+
+三个阶段串起来展示一次完整链路：**接入 → Worker 启动 → 工具调用 → 攻破吊销兜底**。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as 管理员
+    participant Mgr as Manager Claw<br/>(管控平面)
+    participant GW as Higress Gateway<br/>(凭证代理)
+    participant Vault as Vault<br/>(凭证仓)
+    participant W as Worker Claw<br/>(执行平面)
+    participant API as 真实 API
+
+    rect rgb(235, 245, 255)
+    Note over Admin,Vault: 阶段一：接入（管理员操作，发生一次）
+    Admin->>Mgr: 描述 API + 提交真实凭证<br/>(API key / OAuth secret / ...)
+    Mgr->>Mgr: 生成 MCP Server YAML<br/>选 credential_provider 插件
+    Mgr->>Vault: 真实凭证入库（仅此一次出现）
+    Mgr->>GW: 部署 MCP Server 配置
+    Mgr->>GW: mcporter 验证连通性
+    GW-->>Mgr: 连通 OK
+    end
+
+    rect rgb(245, 250, 235)
+    Note over GW,W: 阶段二：Worker 启动（拉配置 + 发现工具）
+    W->>GW: 拉取已授权 MCP 配置
+    GW-->>W: 工具 schema + consumer token<br/>(无真实凭证)
+    W->>W: mcporter 发现工具<br/>自动生成 SKILL.md
+    end
+
+    rect rgb(255, 248, 235)
+    Note over W,API: 阶段三：运行时工具调用（每次任务都走）
+    W->>GW: 调用工具<br/>Authorization: consumer_token
+    GW->>GW: 鉴权 + 速率限制 + 审计
+    GW->>Vault: 取真实凭证
+    Vault-->>GW: 真实凭证（内存，不落 Worker）
+    GW->>API: 替换为真实凭证转发
+    API-->>GW: 返回结果
+    GW-->>W: 返回结果
+    end
+
+    rect rgb(255, 235, 235)
+    Note over Admin,API: 阶段四：Worker 被攻破的兜底
+    Admin->>GW: 吊销该 Worker 的 consumer token
+    W--xGW: 后续调用全部 401
+    Note over Vault,API: 真实凭证安全不受影响，<br/>无需轮换
+    end
+```
+
+**图示要点**：
+- **红线**（阶段一）真实凭证仅在 Admin → Manager → Vault 流转一次，之后**再不出现**在任何与 Worker 相关的通道
+- **绿线**（阶段二）Worker 拿到的配置只含 `consumer_token + 工具 schema`，看不到任何真实凭证
+- **黄线**（阶段三）每次调用时 Gateway 现场从 Vault 取凭证→替换转发→回收，真实凭证不落 Worker 进程
+- **红线**（阶段四）吊销只针对 consumer token，真实 API key 无需同步轮换——这是"Manager-Worker 分离"最核心的运维收益
+
 ---
 
 ## 工具批量接入能力
