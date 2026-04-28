@@ -1,5 +1,4 @@
 # DeerFlow LangGraph Agent 架构分析
-
 ## Agent 架构总览
 
 DeerFlow 使用 **LangChain 的高级 `create_agent()` 工厂函数**（而非低级的 LangGraph `StateGraph` API）来创建 agent。

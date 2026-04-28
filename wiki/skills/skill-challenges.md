@@ -166,7 +166,7 @@ Skill 的运行时风险有三类：
 
 | 层 | 方案 | 对应章节 |
 |---|---|---|
-| 凭证层 | MCP Manager-Worker 分离，Worker 拿 consumer token 代替真实凭证 | [[architecture/mcp-management.md]] |
+| 凭证层 | MCP Manager-Worker 分离，Worker 拿 consumer token 代替真实凭证 | [[应用网关设计方案]] |
 | 静态扫描 | 创建 + 安装时阻断（10+ 种注入模式 / 危险命令 / 硬编码凭证 / 隐形 Unicode） | #12 安全扫描 |
 | 运行时校验 | 每次 load_skill 校验 OSS 对象 SHA256 防篡改 | #12 |
 | 定期审计 | 每日扫所有 current_version，发现新注入模式追溯预警 | #12 |
@@ -240,7 +240,7 @@ MCP（原子工具）和 Skill（场景编排）容易混淆：
 
 ### 中台方案
 
-**定位边界**（见 [[architecture/mcp-management.md]]）：
+**定位边界**（见 [[应用网关设计方案]]）：
 
 | 层 | 职责 | 粒度 | 治理重点 |
 |---|---|---|---|
@@ -271,6 +271,6 @@ MCP 工具（Gateway 托管凭证）
 
 - 核心方案: [[skills/skill-manage.md]]
 - 上下文工程视角: [[context/context-management.md]]
-- 凭证与 MCP: [[architecture/mcp-management.md]]
+- 凭证与 MCP: [[应用网关设计方案]]
 - 安全体系: [[security/agent-security.md]]
 - 时序流程: [[flows/skill-loading.md]]

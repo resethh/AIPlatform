@@ -10,7 +10,7 @@
 | 系统架构 | `wiki/architecture/` | [[deerflow.md]] | DeerFlow Agent：LangGraph StateGraph / Lead + 子 Agent 并发 / 异步记忆 |
 | 系统架构 | `wiki/architecture/` | [[deerflow-agent.md]] | DeerFlow Agent 执行架构：13 层中间件 / 子 Agent 线程池 / Skill 渐进加载实现 |
 | 系统架构 | `wiki/architecture/` | [[decision-log.md]] | 架构决策日志（ADR 汇总）：记录每个关键设计的背景与取舍 |
-| 系统架构 | `wiki/architecture/` | [[mcp-management.md]] | MCP Server 管理方案：为何选 MCP / Server 设计模式 / Manager-Worker + Gateway 凭证零暴露 / Client 上下文优化（融合 HiClaw 与 Anthropic 实践） |
+| 系统架构 | `wiki/architecture/` | [[应用网关设计方案]] | MCP Server 管理方案：为何选 MCP / Server 设计模式 / Manager-Worker + Gateway 凭证零暴露 / Client 上下文优化（融合 HiClaw 与 Anthropic 实践） |
 | 安全 | `wiki/security/` | [[agent-security.md]] | Agent 安全体系：8 层纵深防御，覆盖 Prompt 注入 / 供应链 / 权限 / 审计 |
 | 记忆机制 | `wiki/memory/` | [[memory-management.md]] | AI 中台记忆总设计：三层存储 / 时间衰减 / 睡眠巩固 / 跨 Session 持久化 |
 | 记忆机制 | `wiki/memory/` | [[deerflow-memory.md]] | DeerFlow 记忆实现：facts JSON + 防抖异步队列 + 时间衰减权重 |
@@ -76,7 +76,7 @@
 **了解 Skill 体系**
 - 中台完整方案（Hermes 机制 + ToB 改造）→ [[skills/skill-manage.md]]
 - 企业级挑战汇总（8 项挑战 + 残余风险）→ [[skills/skill-challenges.md]]
-- MCP Server 管理（凭证零暴露架构）→ [[architecture/mcp-management.md]]
+- MCP Server 管理（凭证零暴露架构）→ [[应用网关设计方案]]
 
 **了解安全**
 - 威胁全景 + 防御体系 → [[security/agent-security.md]]

@@ -24,6 +24,28 @@ skill_manage(action="create", name="xxx", content="...")
     └── 安全扫描 → 通不过则回滚删除
 ```
 
+### 自主判断创建的执行细节
+"由 LLM 自主判断，满足以下条件时主动创建"不是凭感觉，是通过 **两处硬编码文本** 注入 system prompt 实现的。SKILLS_GUIDANCE（`agent/prompt_builder.py:164-171`）
+```python
+
+SKILLS_GUIDANCE = (
+
+    "After completing a complex task (5+ tool calls), fixing a tricky error, "
+
+    "or discovering a non-trivial workflow, save the approach as a "
+
+    "skill with skill_manage so you can reuse it next time.\n"
+
+    "When using a skill and finding it outdated, incomplete, or wrong, "
+
+    "patch it immediately with skill_manage(action='patch') — don't wait to be asked. "
+
+    "Skills that aren't maintained become liabilities."
+
+)
+
+```
+
 ### SKILL.md 格式
 
 ```yaml
