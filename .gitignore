@@ -1,0 +1,13 @@
+# Python 字节码 / 缓存
+__pycache__/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+
+# claude code
+.agent/
+.agents/
+.claude/
